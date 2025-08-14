@@ -11,11 +11,11 @@ import shutil
 # It navigates up two directories to find the 'data_preprocessing' folder.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data_preprocessing", "src")))
 
-from data_preprocessing.preprocess import run_preprocessing 
+from preprocess import run_preprocessing
 
 # Define model path
 # os.path.abspath resolves the full path, making it more robust.
-MODEL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "04_model_output", "model.joblib"))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data_preprocessing", "src")))
 
 # Load the trained model at startup to avoid reloading it on every request.
 try:
