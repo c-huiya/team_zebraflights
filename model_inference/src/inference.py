@@ -9,9 +9,15 @@ import shutil
 # Dynamically add path to preprocessing module
 # This is a good practice to ensure the import works regardless of where the script is executed.
 # It navigates up two directories to find the 'data_preprocessing' folder.
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data_preprocessing", "src")))
+preprocessing_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data_preprocessing", "src"))
+sys.path.append(preprocessing_path)
 
-from data_preprocessing.preprocess import run_preprocessing 
+try:
+    from preprocess import run_preprocessing 
+except ImportError as e:
+    print(f"Error importing preprocessing module: {e}")
+    print(f"Please ensure the 'data_preprocessing' module and 'preprocess.py' are in the correct location relative to this script.")
+    sys.exit(1)
 
 # Define model path
 # os.path.abspath resolves the full path, making it more robust.
