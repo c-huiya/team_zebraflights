@@ -17,19 +17,19 @@ def _iqr_bounds(s):
 def run_preprocessing(input_path, output_path, outlier_strategy="clip"):
     df = pd.read_csv(input_path)
 
-    # 1. Drop duplicates
+    # Drop duplicates
     df = df.drop_duplicates()
     if 'DOL Vehicle ID' in df.columns:
         df = df.drop_duplicates(subset=['DOL Vehicle ID'])
 
-    # 2. Handle missing data
+    # Handle missing data
     for col in df.select_dtypes(include=["object", "string"]).columns:
         df[col] = df[col].replace({"nan": np.nan}).fillna("unknown")
     for col in df.select_dtypes(include=[np.number]).columns:
         df[f"{col}_was_na"] = df[col].isna().astype(int)
         df[col] = df[col].fillna(df[col].median(skipna=True))
 
-    # 3. Fix data types
+    # Fix data types
     for col in df.select_dtypes(include=["object", "string"]).columns:
         s = df[col].astype(str)
         sample = s.sample(min(len(s), 2000), random_state=42)
@@ -46,7 +46,7 @@ def run_preprocessing(input_path, output_path, outlier_strategy="clip"):
         df.loc[df["Base MSRP"] <= 0, "Base MSRP"] = np.nan
         df["Base MSRP"] = df["Base MSRP"].fillna(df["Base MSRP"].median(skipna=True))
 
-    # 4. Outlier treatment
+    # Outlier 
     hard_caps = {"Base MSRP": (0, 200000)}
     for col in df.select_dtypes(include=[np.number]).columns:
         s = df[col].dropna()
@@ -61,7 +61,6 @@ def run_preprocessing(input_path, output_path, outlier_strategy="clip"):
         else:
             df[col] = df[col].clip(lower=lo, upper=hi)
 
-    # Save output
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_path, index=False)
 
