@@ -2,17 +2,49 @@ from flask import Flask, request, jsonify
 import os, sys, tempfile, shutil
 import pandas as pd
 import joblib
-from preprocess import run_preprocessing
+from pathlib import Path
+import os, sys
 
-# --- Resolve model path dynamically ---
-# Start from the current file's directory (/app/src in Docker, something like .../model_inference/src locally)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# --- Resolve project root both locally and in Docker ---
+BASE_DIR = Path(__file__).resolve().parent
 
-# Go up one level to reach /app (in Docker) or your project root locally
-PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+# Try a few sensible candidates:
+candidates = [
+    BASE_DIR.parent,          # /app  (Docker) or .../project/model_inference (local)
+    BASE_DIR.parent.parent,   # .../project (local)
+    Path.cwd(),               # current working directory, just in case
+]
 
-# Build the path to the model inside the data folder
-MODEL_PATH = os.path.join(PROJECT_ROOT, "data", "04_model_output", "model.joblib")
+# Prefer the first folder that contains 'data/04_model_output'
+PROJECT_ROOT = None
+for c in candidates:
+    if (c / "data" / "04_model_output").exists():
+        PROJECT_ROOT = c
+        break
+
+# Allow override via env var if needed
+if os.getenv("PROJECT_ROOT"):
+    PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT")).resolve()
+
+if PROJECT_ROOT is None:
+    raise RuntimeError(
+        "Could not locate project root. "
+        "Checked: "
+        + ", ".join(str(p) for p in candidates)
+        + ". Set PROJECT_ROOT env var to override."
+    )
+
+MODEL_PATH = PROJECT_ROOT / "data" / "04_model_output" / "model.joblib"
+
+# --- Ensure we can import preprocess.py ---
+PREPROC_DIR = PROJECT_ROOT / "data_preprocessing" / "src"
+if PREPROC_DIR.exists():
+    sys.path.insert(0, str(PREPROC_DIR))
+else:
+    raise RuntimeError(f"Preprocessing module not found at {PREPROC_DIR}")
+
+from preprocess import run_preprocessing  # now safe to import
+
 
 # --- Diagnostics (helpful if it still fails) ---
 print("=== Startup path diagnostics ===", flush=True)
