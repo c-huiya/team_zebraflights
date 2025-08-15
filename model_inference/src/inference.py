@@ -3,35 +3,22 @@ import os, sys, tempfile, shutil
 import pandas as pd
 import joblib
 from pathlib import Path
-import os, sys
 
 # --- Resolve project root both locally and in Docker ---
 BASE_DIR = Path(__file__).resolve().parent
+candidates = [BASE_DIR.parent, BASE_DIR.parent.parent, Path.cwd()]
 
-# Try a few sensible candidates:
-candidates = [
-    BASE_DIR.parent,          # /app  (Docker) or .../project/model_inference (local)
-    BASE_DIR.parent.parent,   # .../project (local)
-    Path.cwd(),               # current working directory, just in case
-]
-
-# Prefer the first folder that contains 'data/04_model_output'
-PROJECT_ROOT = None
-for c in candidates:
-    if (c / "data" / "04_model_output").exists():
-        PROJECT_ROOT = c
-        break
-
-# Allow override via env var if needed
-if os.getenv("PROJECT_ROOT"):
-    PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT")).resolve()
+PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT")) if os.getenv("PROJECT_ROOT") else None
+if not PROJECT_ROOT:
+    for c in candidates:
+        if (c / "data" / "04_model_output").exists():
+            PROJECT_ROOT = c
+            break
 
 if PROJECT_ROOT is None:
     raise RuntimeError(
         "Could not locate project root. "
-        "Checked: "
-        + ", ".join(str(p) for p in candidates)
-        + ". Set PROJECT_ROOT env var to override."
+        "Set PROJECT_ROOT env var to override."
     )
 
 MODEL_PATH = PROJECT_ROOT / "data" / "04_model_output" / "model.joblib"
@@ -43,38 +30,15 @@ if PREPROC_DIR.exists():
 else:
     raise RuntimeError(f"Preprocessing module not found at {PREPROC_DIR}")
 
-from preprocess import run_preprocessing  # now safe to import
+from preprocess import run_preprocessing
 
-
-# --- Diagnostics (helpful if it still fails) ---
-print("=== Startup path diagnostics ===", flush=True)
-print(f"__file__          : {__file__}", flush=True)
-print(f"BASE_DIR          : {BASE_DIR}", flush=True)
-print(f"PROJECT_ROOT      : {PROJECT_ROOT}", flush=True)
-print(f"Resolved MODEL_PATH: {MODEL_PATH}", flush=True)
-print("Contents of model dir:", flush=True)
-try:
-    for name in os.listdir(os.path.dirname(MODEL_PATH)):
-        print("  ", name, flush=True)
-except FileNotFoundError:
-    print("  (Model directory not found)", flush=True)
-print("=== End diagnostics ===", flush=True)
-
-# --- Load the model or fail fast ---
-if not os.path.isfile(MODEL_PATH):
-    raise FileNotFoundError(
-        f"Model file not found at {MODEL_PATH}. "
-        f"Ensure it exists in 'data/04_model_output' relative to project root."
-    )
-
+# --- Load model ---
 model = joblib.load(MODEL_PATH)
 
-# --- Flask app init ---
 app = Flask(__name__)
 
-
-def run_inference(pipeline, data: pd.DataFrame):
-    return pipeline.predict(data)
+PREDICTION_COLUMN = os.getenv("PREDICTION_COLUMN", "prediction")
+OUTLIER_STRATEGY = os.getenv("OUTLIER_STRATEGY", "clip")  # "clip" or "remove"
 
 @app.route("/", methods=["GET"])
 def home():
@@ -84,20 +48,24 @@ def home():
 def predict():
     temp_dir = tempfile.mkdtemp()
     try:
-        input_data = request.get_json()
-        df_raw = pd.DataFrame(input_data)
+        # use existing inference CSV, but don’t overwrite it
+        src = PROJECT_ROOT / "data" / "03_inference" / "inference_dataset.csv"
+        if not src.exists():
+            return jsonify({"error": f"Source file not found: {src}"}), 404
 
-        temp_csv_path = os.path.join(temp_dir, "preprocessed_data.csv")
-        run_preprocessing(df_raw, temp_csv_path)
-        df_clean = pd.read_csv(temp_csv_path)
+        inp = os.path.join(temp_dir, "input.csv")
+        clean = os.path.join(temp_dir, "clean.csv")
 
-        if "Base MSRP" in df_clean.columns:
-            df_clean = df_clean.drop(columns=["Base MSRP"])
+        shutil.copy(src, inp)
 
-        preds = run_inference(model, df_clean)
-        df_raw["Clean Alternative Fuel Vehicle (CAFV) Eligibility"] = preds
+        # NEW API: only input + output (no working/inference paths)
+        run_preprocessing(inp, clean, outlier_strategy=OUTLIER_STRATEGY)
 
-        return df_raw.to_json(orient="records")
+        df = pd.read_csv(clean)
+        preds = model.predict(df)
+        df[PREDICTION_COLUMN] = preds
+        return df.to_json(orient="records"), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
