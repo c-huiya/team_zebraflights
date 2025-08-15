@@ -5,102 +5,69 @@ import os
 from pathlib import Path
 
 app = Flask(__name__)
-
 DATA_ROOT = Path(os.getenv("DATA_DIR", "/data"))
 
-def find_outliers(series, upper_bound=None, ignore_zeros=True, lower_tail=False,
-                  method="iqr", p_hi=0.99):
-    s = pd.to_numeric(series, errors="coerce")
-    if ignore_zeros:
-        s = s.mask(s == 0)
-    s = s.dropna()
-    if s.empty:
-        return {"count": 0, "percent_col": 0.0, "percent_ds": 0.0,
-                "bound_used": None, "max_value": None, "outlier_values": []}
+def _iqr_bounds(s):
+    q1, q3 = s.quantile([0.25, 0.75])
+    iqr = q3 - q1
+    if pd.isna(iqr) or iqr == 0:
+        return s.quantile(0.01), s.quantile(0.99)
+    return q1 - 1.5 * iqr, q3 + 1.5 * iqr
 
-    if method == "iqr":
-        q1, q3 = s.quantile([0.25, 0.75])
-        iqr = q3 - q1
-        iqr_upper = s.quantile(0.99) if iqr == 0 else q3 + 1.5 * iqr
-        bound = iqr_upper if upper_bound is None else min(iqr_upper, upper_bound)
-    elif method == "percentile":
-        bound = s.quantile(p_hi) if upper_bound is None else min(s.quantile(p_hi), upper_bound)
-    else:
-        raise ValueError("method must be 'iqr' or 'percentile'")
+def run_preprocessing(input_path, output_path, outlier_strategy="clip"):
+    df = pd.read_csv(input_path)
 
-    outliers = s[s < bound] if lower_tail else s[s > bound]
-
-    return {
-        "count": int(len(outliers)),
-        "percent_col": float(len(outliers) / len(s) * 100),
-        "percent_ds": float(len(outliers) / len(series) * 100),
-        "iqr_upper": float(bound) if method == "iqr" else None,
-        "bound_used": float(bound) if np.isfinite(bound) else None,
-        "max_value": float(s.max()),
-        "outlier_values": outliers.sort_values(ascending=False).head(10).astype(float).tolist()
-    }
-
-def run_preprocessing(input_path, inference_path, working_path, clean_path):
-    original_df = pd.read_csv(input_path)
-
-    # Split dataset
-    inference_df = original_df.sample(frac=0.25, random_state=42)
-    df = original_df.drop(inference_df.index)
-
-    # Save inference and working files
-    inference_df.to_csv(inference_path, index=False)
-    df.to_csv(working_path, index=False)
-
-    # Remove duplicates
-    before_count = len(df)
-    df.drop_duplicates(inplace=True)
+    # 1. Drop duplicates
+    df = df.drop_duplicates()
     if 'DOL Vehicle ID' in df.columns:
-        df.drop_duplicates(subset=['DOL Vehicle ID'], inplace=True)
-    after_count = len(df)
+        df = df.drop_duplicates(subset=['DOL Vehicle ID'])
 
-    # Drop rows with missing values
-    df = df.dropna()
+    # 2. Handle missing data
+    for col in df.select_dtypes(include=["object", "string"]).columns:
+        df[col] = df[col].replace({"nan": np.nan}).fillna("unknown")
+    for col in df.select_dtypes(include=[np.number]).columns:
+        df[f"{col}_was_na"] = df[col].isna().astype(int)
+        df[col] = df[col].fillna(df[col].median(skipna=True))
 
-    # Normalize string columns
-    for col in df.select_dtypes(include='object').columns:
-        df[col] = df[col].str.strip().str.lower()
-    for col in df.select_dtypes(include=['object', 'string']).columns:
-        df[col] = df[col].astype(str).str.strip().str.replace(r"\s+", " ", regex=True)
-    if "Model" in df.columns:
-        df["Model"] = df["Model"].str.replace(r"\s+", "", regex=True)
+    # 3. Fix data types
+    for col in df.select_dtypes(include=["object", "string"]).columns:
+        s = df[col].astype(str)
+        sample = s.sample(min(len(s), 2000), random_state=42)
+        clean = sample.str.replace(r"[,\s]", "", regex=True).str.replace(r"^\$", "", regex=True)
+        if pd.to_numeric(clean, errors="coerce").notna().mean() >= 0.85:
+            df[col] = pd.to_numeric(
+                s.str.replace(r"[,\s]", "", regex=True).str.replace(r"^\$", "", regex=True),
+                errors="coerce"
+            )
 
-    # Fix Base MSRP
+    # Fix Base MSRP if exists
     if "Base MSRP" in df.columns:
         df["Base MSRP"] = pd.to_numeric(df["Base MSRP"], errors="coerce")
         df.loc[df["Base MSRP"] <= 0, "Base MSRP"] = np.nan
-        df = df[~df["Base MSRP"].isin([845000.0, 184400.0])]
-        df["Base_MSRP_missing"] = df["Base MSRP"].isna().astype(int)
+        df["Base MSRP"] = df["Base MSRP"].fillna(df["Base MSRP"].median(skipna=True))
 
-        msrp = df["Base MSRP"].copy()
-        if all(c in df.columns for c in ["Make","Model","Model Year"]):
-            msrp = msrp.fillna(df.groupby(["Make","Model","Model Year"])["Base MSRP"].transform("median"))
-        if all(c in df.columns for c in ["Make","Model"]):
-            msrp = msrp.fillna(df.groupby(["Make","Model"])["Base MSRP"].transform("median"))
-        if "Make" in df.columns:
-            msrp = msrp.fillna(df.groupby("Make")["Base MSRP"].transform("median"))
-        msrp = msrp.fillna(msrp.median())
-        df["Base MSRP"] = msrp
+    # 4. Outlier treatment
+    hard_caps = {"Base MSRP": (0, 200000)}
+    for col in df.select_dtypes(include=[np.number]).columns:
+        s = df[col].dropna()
+        if s.empty:
+            continue
+        lo, hi = _iqr_bounds(s)
+        if col in hard_caps:
+            lo = max(lo, hard_caps[col][0])
+            hi = min(hi, hard_caps[col][1])
+        if outlier_strategy == "remove":
+            df = df[(df[col].isna()) | ((df[col] >= lo) & (df[col] <= hi))]
+        else:
+            df[col] = df[col].clip(lower=lo, upper=hi)
 
-    # Save final cleaned output
-    df.to_csv(clean_path, index=False)
-
-    msrp_outliers = {}
-    if "Base MSRP" in df.columns:
-        msrp_outliers = find_outliers(df["Base MSRP"], upper_bound=200_000)
+    # Save output
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_path, index=False)
 
     return {
-        "rows_before": before_count,
-        "rows_after": after_count,
         "rows_cleaned": len(df),
-        "inference_file": str(inference_path),
-        "working_file": str(working_path),
-        "cleaned_file": str(clean_path),
-        "msrp_outliers": msrp_outliers
+        "cleaned_file": str(output_path)
     }
 
 @app.route("/healthz", methods=["GET"])
@@ -111,22 +78,14 @@ def health():
 def preprocess():
     try:
         body = request.get_json(force=True)
-        input_rel = body.get("input", "01_raw/Electric_Vehicle_Population_Data.csv")
-        inference_rel = body.get("inference", "03_inference/inference_dataset.csv")
-        working_rel = body.get("working", "01_raw/working_dataset.csv")
-        clean_rel = body.get("clean", "02_preprocessed/clean_dataset.csv")
+        input_rel = body.get("input", "01_raw/working_dataset.csv")
+        output_rel = body.get("output", "02_preprocessed/clean_dataset.csv")
+        outlier_strategy = body.get("outlier_strategy", "clip")  # "clip" or "remove"
 
         input_path = DATA_ROOT / input_rel
-        inference_path = DATA_ROOT / inference_rel
-        working_path = DATA_ROOT / working_rel
-        clean_path = DATA_ROOT / clean_rel
+        output_path = DATA_ROOT / output_rel
 
-        input_path.parent.mkdir(parents=True, exist_ok=True)
-        inference_path.parent.mkdir(parents=True, exist_ok=True)
-        working_path.parent.mkdir(parents=True, exist_ok=True)
-        clean_path.parent.mkdir(parents=True, exist_ok=True)
-
-        result = run_preprocessing(input_path, inference_path, working_path, clean_path)
+        result = run_preprocessing(input_path, output_path, outlier_strategy=outlier_strategy)
         return jsonify({"status": "ok", "result": result})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
