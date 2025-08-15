@@ -12,20 +12,16 @@ import shutil
 preprocessing_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data_preprocessing", "src"))
 sys.path.append(preprocessing_path)
 
-<<<<<<< HEAD
 try:
     from preprocess import run_preprocessing 
 except ImportError as e:
     print(f"Error importing preprocessing module: {e}")
     print(f"Please ensure the 'data_preprocessing' module and 'preprocess.py' are in the correct location relative to this script.")
     sys.exit(1)
-=======
-from preprocess import run_preprocessing
->>>>>>> b2f51636add9e20630b6b03f11180e4a7f30c27f
 
 # Define model path
 # os.path.abspath resolves the full path, making it more robust.
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data_preprocessing", "src")))
+MODEL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "04_model_output", "model.joblib"))
 
 # Load the trained model at startup to avoid reloading it on every request.
 try:
