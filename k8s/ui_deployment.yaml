@@ -21,16 +21,3 @@ spec:
           env:
             - name: MODEL_ENDPOINT
               value: "http://model-inference-service:5002/predict"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ui-service
-spec:
-  selector:
-    app: ui
-  ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 80
-  type: ClusterIP
