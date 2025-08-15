@@ -1,26 +1,81 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>CAFV Prediction</title>
+    <meta charset="UTF-8">
+    <title>CAFV Eligibility Prediction</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #ffffff;
+        }
+
+        .center-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            padding: 20px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 20px;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 300px;
+        }
+
+        input[type="text"] {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        button {
+            padding: 10px;
+            border: none;
+            background-color: #007BFF;
+            color: white;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .error {
+            color: red;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+    </style>
 </head>
 <body>
-    <h1>CAFV Eligibility Prediction</h1>
-    <form method="POST">
-        <label>Vehicle Make: <input type="text" name="vehicle_make" required></label><br>
-        <label>Model Year: <input type="number" name="model_year" required></label><br>
-        <label>Vehicle Type: <input type="text" name="vehicle_type" required></label><br>
-        <label>Electric Range: <input type="number" name="electric_range" required></label><br>
-        <label>Base MSRP: <input type="number" name="base_msrp" required></label><br>
-        <label>City: <input type="text" name="city" required></label><br>
-        <label>County: <input type="text" name="county" required></label><br>
-        <button type="submit">Predict</button>
-    </form>
-
-    {% if prediction %}
-        <h3>Prediction: {{ prediction }}</h3>
-    {% endif %}
-    {% if error %}
-        <p style="color:red;">Error: {{ error }}</p>
-    {% endif %}
+    <div class="center-container">
+        <h1>CAFV Eligibility Prediction</h1>
+        <form method="POST" action="/predict">
+            <input type="text" name="vehicle_make" placeholder="Vehicle Make" required>
+            <input type="text" name="model_year" placeholder="Model Year" required>
+            <input type="text" name="vehicle_type" placeholder="Vehicle Type" required>
+            <input type="text" name="electric_range" placeholder="Electric Range" required>
+            <input type="text" name="base_msrp" placeholder="Base MSRP" required>
+            <input type="text" name="city" placeholder="City" required>
+            <input type="text" name="county" placeholder="County" required>
+            <button type="submit">Predict</button>
+        </form>
+        {% if error %}
+            <div class="error">Error: {{ error }}</div>
+        {% endif %}
+    </div>
 </body>
 </html>
