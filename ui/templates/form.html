@@ -64,13 +64,19 @@
     <div class="center-container">
         <h1>CAFV Eligibility Prediction</h1>
         <form method="POST" action="/">
-            <input type="text" name="vehicle_make" placeholder="Vehicle Make" required>
-            <input type="text" name="model_year" placeholder="Model Year" required>
-            <input type="text" name="vehicle_type" placeholder="Vehicle Type" required>
-            <input type="text" name="electric_range" placeholder="Electric Range" required>
-            <input type="text" name="base_msrp" placeholder="Base MSRP" required>
-            <input type="text" name="city" placeholder="City" required>
-            <input type="text" name="county" placeholder="County" required>
+            <input name="county"                placeholder="County"                required>
+            <input name="city"                  placeholder="City"                  required>
+            <input name="state"                 placeholder="State"                 required>
+            <input name="postal_code"           placeholder="Postal Code"           required>
+
+            <input name="make"                  placeholder="Vehicle Make"          required>
+            <input name="model"                 placeholder="Vehicle Model"         required>
+            <input name="vehicle_type"          placeholder="EV Type (bev / phev)"  required>
+
+            <input name="base_msrp"             placeholder="Base MSRP"             required>
+            <input name="legislative_district"  placeholder="Legislative District"  required>
+
+            <input name="electric_utility"      placeholder="Electric Utility"      required>
             <button type="submit">Predict</button>
         </form>
         {% if error %}
