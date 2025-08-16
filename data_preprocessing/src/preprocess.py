@@ -11,7 +11,7 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from scipy import sparse
 from scipy.sparse import save_npz
 
-app = Flask(_name_)
+app = Flask(__name__)
 DATA_ROOT = Path(os.getenv("DATA_DIR", "/data"))
 
 # Helpers
@@ -68,7 +68,7 @@ def run_preprocessing(
 ):
     df = pd.read_csv(input_path)
 
-    # ---- Cleaning ----
+    # Cleaning
     df = df.drop_duplicates()
     if "DOL Vehicle ID" in df.columns:
         df = df.drop_duplicates(subset=["DOL Vehicle ID"])
@@ -198,5 +198,5 @@ def preprocess():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
