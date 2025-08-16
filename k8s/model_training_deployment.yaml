@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-training
+  labels:
+    app: model-training
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-training
+  template:
+    metadata:
+      labels:
+        app: model-training
+    spec:
+      containers:
+        - name: model-training
+          image: zebrafli-train:latest  # replace with your actual image or registry path
+          ports:
+            - containerPort: 8000
+          env:
+            - name: ENCODED_DIR
+              value: /data/02_preprocessed/encoded_split
+            - name: MODEL_DIR
+              value: /data/04_model_output
+            - name: PORT
+              value: "8000"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /data
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: training-service
+spec:
+  selector:
+    app: model-training
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP

@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-preprocessing
+  labels:
+    app: data-preprocessing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-preprocessing
+  template:
+    metadata:
+      labels:
+        app: data-preprocessing
+    spec:
+      containers:
+        - name: data-preprocessing
+          image: zebrafli-preprocess:latest  # replace with your actual image or registry path
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATA_DIR
+              value: /data
+            - name: PORT
+              value: "8000"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /data
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: shared-data-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: preprocess-service
+spec:
+  selector:
+    app: data-preprocessing
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP
