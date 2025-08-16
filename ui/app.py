@@ -17,16 +17,16 @@ def index():
         try:
             # Get user inputs
             input_data = {
-                "Vehicle Make": [request.form["vehicle_make"]],
-                "Model Year": [int(request.form["model_year"])],
-                "Electric Vehicle Type": [request.form["vehicle_type"]],
-                "Electric Range": [int(request.form["electric_range"])],
-                "Base MSRP": [int(request.form["base_msrp"])],
-                "City": [request.form["city"]],
-                "County": [request.form["county"]],
+                "Vehicle Make": request.form["vehicle_make"],            # <-- no [ ]
+                "Model Year":   int(request.form["model_year"]),
+                "Electric Vehicle Type": request.form["vehicle_type"],
+                "Electric Range": int(request.form["electric_range"]),
+                "Base MSRP": int(request.form["base_msrp"]),
+                "City": request.form["city"],
+                "County": request.form["county"],
             }
 
-            df = pd.DataFrame(input_data)
+            df = pd.DataFrame([input_data])
 
             # Send to inference API
             response = requests.post(MODEL_ENDPOINT, json=df.to_dict(orient="records"))
