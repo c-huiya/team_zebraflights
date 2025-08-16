@@ -1,13 +1,14 @@
 import os
 import json
-import warnings
 import joblib
 import numpy as np
-import pandas as pd
+from pathlib import Path
+from datetime import datetime
 
+from flask import Flask, request, jsonify
 from scipy import sparse
+from scipy.sparse import load_npz
 
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     roc_auc_score,
     average_precision_score,
@@ -15,74 +16,22 @@ from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
 )
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.feature_selection import mutual_info_classif
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import mutual_info_classif
 
-# silence noisy MI warnings from internal clustering utils
-warnings.filterwarnings("ignore", module="sklearn.metrics.cluster._supervised")
+app = Flask(__name__)
 
-
-# ========================
-# Preprocessing builder
-# ========================
-def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
-    """Create preprocessing for categorical and numeric columns (no imputation)."""
-    cat = X.select_dtypes(include=["object", "category"]).columns.tolist()
-    num = X.select_dtypes(include=["number", "bool"]).columns.tolist()
-
-    steps = []
-    if cat:
-        steps.append(("cat", OneHotEncoder(handle_unknown="ignore"), cat))
-    if num:
-        steps.append(("num", StandardScaler(), num))
-
-    if not steps:
-        raise ValueError("No usable columns detected.")
-    return ColumnTransformer(steps, remainder="drop")
+# ---- ENV defaults (override via POST /train body) ----
+MODEL_DIR = Path(os.getenv("MODEL_DIR", "/data/04_model_output"))
+ENCODED_DIR = Path(os.getenv("ENCODED_DIR", "/data/02_preprocessed/encoded_split"))
+PORT = int(os.getenv("PORT", "8000"))
 
 
-# ========================
-# Target Mapping
-# ========================
-def make_binary_target(y: pd.Series, unknown_policy: str = "negative"):
-    """
-    Map the three known CAFV strings to 0/1.
-    unknown_policy: "negative" (default) maps UNKNOWN to 0,
-                    or "drop" to return a mask for filtering.
-    """
-    ELIGIBLE = "clean alternative fuel vehicle eligible"
-    NOT_ELIG = "not eligible due to low battery range"
-    UNKNOWN = "eligibility unknown as battery range has not been researched"
-
-    y_norm = y.astype(str).str.strip().str.lower()
-
-    valid_values = {ELIGIBLE, NOT_ELIG, UNKNOWN}
-    unexpected = sorted(set(y_norm.unique()) - valid_values)
-    if unexpected:
-        raise ValueError(f"Unexpected target values: {unexpected}")
-
-    if unknown_policy == "drop":
-        keep_mask = y_norm != UNKNOWN
-        mapped = np.where(y_norm[keep_mask] == ELIGIBLE, 1, 0).astype(int)
-        return mapped, keep_mask.values
-
-    # Treat UNKNOWN as negative
-    mapped = np.where(y_norm == ELIGIBLE, 1, 0).astype(int)
-    return mapped
-
-
-# ========================
-# Evaluation
-# ========================
+# Helpers
 def evaluate(y_true: np.ndarray, proba: np.ndarray, thresh: float) -> dict:
-    """Binary classification evaluation with fixed label order."""
     y_true = np.asarray(y_true, dtype=int)
     pred = (proba >= thresh).astype(int)
     tn, fp, fn, tp = confusion_matrix(y_true, pred, labels=[0, 1]).ravel()
-
     return {
         "roc_auc": float(roc_auc_score(y_true, proba)),
         "pr_auc": float(average_precision_score(y_true, proba)),
@@ -100,175 +49,189 @@ def evaluate(y_true: np.ndarray, proba: np.ndarray, thresh: float) -> dict:
     }
 
 
-def get_feature_names(pre: ColumnTransformer) -> np.ndarray:
+def load_artifacts(encoded_dir: Path):
+    X_tr = load_npz(encoded_dir / "X_train.npz")
+    X_te = load_npz(encoded_dir / "X_test.npz")
+    y_tr = np.load(encoded_dir / "y_train.npy")
+    y_te = np.load(encoded_dir / "y_test.npy")
+    with open(encoded_dir / "feature_names.json", "r") as f:
+        feat_names = np.array(json.load(f), dtype=object)
+    return X_tr, X_te, y_tr, y_te, feat_names
+
+
+# Endpoints
+@app.get("/health")
+def health():
+    return jsonify({"status": "ok", "time": datetime.utcnow().isoformat() + "Z"})
+
+
+@app.post("/train")
+def train():
     """
-    Get output feature names from a fitted ColumnTransformer.
+    Body JSON (all optional):
+    {
+      "encoded_dir": "/data/02_preprocessed/encoded_split",
+      "model_dir": "/data/04_model_output",
+      "threshold": 0.50,
+      "seed": 42,
+      "rf_params": {
+        "n_estimators": 400,
+        "class_weight": "balanced",
+        "n_jobs": -1,
+        "max_depth": null
+      },
+      "compute_mi": true
+    }
     """
+    p = request.get_json(silent=True) or {}
+    encoded_dir = Path(p.get("encoded_dir", ENCODED_DIR))
+    model_dir = Path(p.get("model_dir", MODEL_DIR))
+    threshold = float(p.get("threshold", 0.50))
+    seed = int(p.get("seed", 42))
+    rf_params = p.get("rf_params", {}) or {}
+    compute_mi = bool(p.get("compute_mi", True))
+
+    if not encoded_dir.exists():
+        return jsonify({"error": f"encoded_dir not found: {encoded_dir}"}), 400
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load pre-encoded, pre-split data
     try:
-        return pre.get_feature_names_out()
-    except Exception:
-        names = []
-        for name, trans, cols in pre.transformers_:
-            if name == "remainder" and trans == "drop":
-                continue
-            if hasattr(trans, "get_feature_names_out"):
-                fn = trans.get_feature_names_out(cols)
-                fn = [f"{name}__{f}" for f in fn]
-                names.extend(fn)
-            else:
-                if isinstance(cols, (list, tuple, np.ndarray)):
-                    names.extend([f"{name}__{c}" for c in cols])
-                else:
-                    names.append(f"{name}__{cols}")
-        return np.array(names)
+        X_tr, X_te, y_tr, y_te, feat_names = load_artifacts(encoded_dir)
+    except Exception as e:
+        return jsonify({"error": f"Loading encoded artifacts failed: {str(e)}"}), 400
 
+    # Train RF (no preprocessing here)
+    defaults = dict(
+        n_estimators=400, n_jobs=-1, random_state=seed, class_weight="balanced"
+    )
+    clf = RandomForestClassifier(**{**defaults, **rf_params})
 
-def print_topk(label: str, pairs, k=20):
-    print(f"\n=== Top {k} {label} ===")
-    for i, (feat, score) in enumerate(pairs[:k], 1):
+    try:
+        clf.fit(X_tr, y_tr)
+        if 1 not in clf.classes_:
+            return jsonify(
+                {"error": f"Expected class '1' in classes_, got: {clf.classes_}"}
+            ), 500
+        pos_idx = int(np.where(clf.classes_ == 1)[0][0])
+        proba = clf.predict_proba(X_te)[:, pos_idx]
+        metrics = evaluate(y_te, proba, threshold)
+    except Exception as e:
+        return jsonify({"error": f"Training/Evaluation failed: {str(e)}"}), 500
+
+    # Feature importances
+    try:
+        importances = clf.feature_importances_
+        if importances.shape[0] != len(feat_names):
+            # fallback names if mismatch (shouldn't happen if preprocess is consistent)
+            feat_names = np.array(
+                [f"f{i}" for i in range(importances.shape[0])], dtype=object
+            )
+        fi = sorted(zip(feat_names, importances), key=lambda x: x[1], reverse=True)
+        import pandas as pd
+
+        pd.DataFrame(fi, columns=["feature", "rf_importance"]).to_csv(
+            model_dir / "feature_importances_rf.csv", index=False
+        )
+    except Exception as e:
+        metrics["_warning_fi"] = f"Feature importance failed: {str(e)}"
+
+    # Optional Mutual Information (on TRAIN)
+    if compute_mi:
         try:
-            score_f = float(score)
-        except Exception:
-            score_f = score
-        print(f"{i:>2}. {feat}: {score_f:.6f}")
+            is_discrete = np.array(
+                [str(n).startswith("cat__") for n in feat_names], dtype=bool
+            )
+            mi_scores = np.zeros(len(feat_names), dtype=float)
 
+            if is_discrete.any():
+                X_cat = X_tr[:, np.where(is_discrete)[0]]
+                if sparse.issparse(X_cat) and not sparse.isspmatrix_csr(X_cat):
+                    X_cat = sparse.csr_matrix(X_cat)
+                mi_scores[is_discrete] = mutual_info_classif(
+                    X_cat, y_tr, discrete_features=True, random_state=seed
+                )
 
-# ========================
-# Main
-# ========================
-def main():
-    # ---- Paths & constants (ENV first, fall back to local defaults) ----
-    train_csv = os.getenv("DATA_PATH", "../data/02_preprocessed/clean_dataset.csv")
-    out_dir = os.getenv("MODEL_DIR", "../data/04_model_output")
-    target_col = "Clean Alternative Fuel Vehicle (CAFV) Eligibility"
+            num_mask = ~is_discrete
+            if num_mask.any():
+                X_num = X_tr[:, np.where(num_mask)[0]]
+                if sparse.issparse(X_num):
+                    X_num = X_num.toarray()
+                mi_scores[num_mask] = mutual_info_classif(
+                    X_num, y_tr, discrete_features=False, random_state=seed
+                )
 
-    threshold = 0.50
-    test_size = 0.2
-    seed = 42
+            import pandas as pd
 
-    os.makedirs(out_dir, exist_ok=True)
+            mi_pairs = sorted(
+                zip(feat_names, mi_scores), key=lambda x: x[1], reverse=True
+            )
+            pd.DataFrame(mi_pairs, columns=["feature", "mi_score"]).to_csv(
+                model_dir / "mutual_information_train.csv", index=False
+            )
+        except Exception as e:
+            metrics["_warning_mi"] = f"MI computation failed: {str(e)}"
 
-    # ---- Load full dataset ----
-    df_full = pd.read_csv(train_csv)
-
-    # ---- Drop leakage cols from features ----
-    leakage_cols = [
-        "Clean Alternative Fuel Vehicle (CAFV) Eligibility",
-        "cafv_eligible",
-        "VIN (1-10)",
-        "DOL Vehicle ID",
-        "Vehicle Location",
-        "2020 Census Tract",
-        "Electric Range",
-        "Base_MSRP_missing",
-        "Model Year",
-    ]
-    X = df_full.drop(columns=[c for c in leakage_cols if c in df_full.columns])
-
-    # ---- Build binary target ----
-    y_text = df_full[target_col]
-    y = make_binary_target(y_text, unknown_policy="negative")  # or "drop"
-
-    # ---- Model pipeline ----
-    pre = build_preprocessor(X)
-    clf = RandomForestClassifier(
-        n_estimators=400,
-        n_jobs=-1,
-        random_state=seed,
-        class_weight="balanced",
-    )
-    pipe = Pipeline([("pre", pre), ("clf", clf)])
-
-    # ---- Split, train ----
-    X_tr, X_te, y_tr, y_te = train_test_split(
-        X, y, test_size=test_size, stratify=y, random_state=seed
-    )
-    pipe.fit(X_tr, y_tr)
-
-    # ---- Evaluate ----
-    classes_ = pipe.named_steps["clf"].classes_
-    if 1 not in classes_:
-        raise RuntimeError(f"Expected class '1' in classes_, got: {classes_}")
-    pos_idx = int(np.where(classes_ == 1)[0][0])
-    proba = pipe.predict_proba(X_te)[:, pos_idx]
-    metrics = evaluate(y_te, proba, threshold)
-    print(json.dumps(metrics, indent=2))
-
-    # ---- Feature names (after encoding) ----
-    pre_fitted: ColumnTransformer = pipe.named_steps["pre"]
-    feat_names = get_feature_names(pre_fitted)
-
-    # ---- RandomForest feature importances ----
-    rf = pipe.named_steps["clf"]
-    importances = rf.feature_importances_
-    fi_pairs = sorted(zip(feat_names, importances), key=lambda x: x[1], reverse=True)
-    print_topk("RandomForest feature importances", fi_pairs, k=20)
-
-    pd.DataFrame(fi_pairs, columns=["feature", "rf_importance"]).to_csv(
-        os.path.join(out_dir, "feature_importances_rf.csv"), index=False
-    )
-
-    # ---- Mutual information on encoded TRAIN matrix ----
-    Xtr_enc = pre_fitted.transform(X_tr)
-    feat_names = get_feature_names(pre_fitted)
-    is_discrete = np.array(
-        [name.startswith("cat__") for name in feat_names], dtype=bool
-    )
-
-    def _colslice(M, mask):
-        if sparse.issparse(M):
-            return M[:, np.where(mask)[0]]
-        return M[:, mask]
-
-    mi_scores = np.zeros(len(feat_names), dtype=float)
-
-    # Categorical block (discrete) — keep sparse
-    if is_discrete.any():
-        X_cat = _colslice(Xtr_enc, is_discrete)
-        if sparse.issparse(X_cat) and not sparse.isspmatrix_csr(X_cat):
-            X_cat = sparse.csr_matrix(X_cat)
-        mi_cat = mutual_info_classif(
-            X_cat, y_tr, discrete_features=True, random_state=seed
+    # Persist artifacts
+    try:
+        joblib.dump(clf, model_dir / "model.joblib")
+        (model_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+        (model_dir / "threshold.txt").write_text(str(threshold))
+        (model_dir / "columns.json").write_text(
+            json.dumps(
+                {
+                    "encoded_feature_columns": list(map(str, feat_names)),
+                    "target": "binary_target",
+                    "class_mapping": {"negative": 0, "positive": 1},
+                    "input_mode": "matrix",
+                },
+                indent=2,
+            )
         )
-        mi_scores[is_discrete] = mi_cat
+    except Exception as e:
+        return jsonify({"error": f"Saving artifacts failed: {str(e)}"}), 500
 
-    # Numeric block (continuous)
-    num_mask = ~is_discrete
-    if num_mask.any():
-        X_num = _colslice(Xtr_enc, num_mask)
-        if sparse.issparse(X_num):
-            X_num = X_num.toarray()
-        mi_num = mutual_info_classif(
-            X_num, y_tr, discrete_features=False, random_state=seed
-        )
-        mi_scores[num_mask] = mi_num
-
-    mi_pairs = sorted(zip(feat_names, mi_scores), key=lambda x: x[1], reverse=True)
-    print_topk("Mutual Information (train, encoded)", mi_pairs, k=20)
-
-    pd.DataFrame(mi_pairs, columns=["feature", "mi_score"]).to_csv(
-        os.path.join(out_dir, "mutual_information_train.csv"), index=False
-    )
-
-    # ---- Save artifacts (to MODEL_DIR) ----
-    joblib.dump(pipe, os.path.join(out_dir, "model.joblib"))
-    with open(os.path.join(out_dir, "metrics.json"), "w") as f:
-        json.dump(metrics, f, indent=2)
-    with open(os.path.join(out_dir, "threshold.txt"), "w") as f:
-        f.write(str(threshold))
-    with open(os.path.join(out_dir, "columns.json"), "w") as f:
-        json.dump(
-            {
-                "raw_feature_columns": X.columns.tolist(),
-                "encoded_feature_columns": feat_names.tolist(),
-                "target": target_col,
-                "class_mapping": {"negative": 0, "positive": 1},
+    return jsonify(
+        {
+            "status": "trained",
+            "encoded_dir": str(encoded_dir),
+            "model_dir": str(model_dir),
+            "n_train": int(len(y_tr)),
+            "n_test": int(len(y_te)),
+            "class_balance_train": {
+                "neg": int((y_tr == 0).sum()),
+                "pos": int((y_tr == 1).sum()),
             },
-            f,
-            indent=2,
-        )
+            "metrics": metrics,
+            "artifacts": [
+                "model.joblib",
+                "metrics.json",
+                "threshold.txt",
+                "columns.json",
+                "feature_importances_rf.csv",
+                "mutual_information_train.csv",
+            ],
+        }
+    )
+
+
+@app.get("/metrics")
+def get_metrics():
+    model_dir = Path(request.args.get("model_dir", MODEL_DIR))
+    path = model_dir / "metrics.json"
+    if not path.exists():
+        return jsonify({"error": f"metrics.json not found in {model_dir}"}), 404
+    return jsonify(json.loads(path.read_text()))
+
+
+@app.get("/artifacts")
+def list_artifacts():
+    model_dir = Path(request.args.get("model_dir", MODEL_DIR))
+    if not model_dir.exists():
+        return jsonify({"error": f"MODEL_DIR not found: {model_dir}"}), 404
+    files = sorted([f.name for f in model_dir.glob("*") if f.is_file()])
+    return jsonify({"model_dir": str(model_dir), "files": files})
 
 
 if __name__ == "__main__":
-    np.random.seed(42)
-    main()
+    app.run(host="0.0.0.0", port=PORT)
