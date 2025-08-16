@@ -39,7 +39,10 @@ def index():
         except Exception as e:
             error = str(e)
 
-    return render_template("form.html", prediction=prediction, error=error)
+    if prediction:
+        return render_template("result.html", eligibility=prediction, record=input_data)
+    else:
+        return render_template("form.html", prediction=None, error=error)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=80)
