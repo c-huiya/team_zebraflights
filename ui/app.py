@@ -17,16 +17,26 @@ def index():
         try:
             # Get user inputs
             input_data = {
-                "Vehicle Make": [request.form["vehicle_make"]],
-                "Model Year": [int(request.form["model_year"])],
-                "Electric Vehicle Type": [request.form["vehicle_type"]],
-                "Electric Range": [int(request.form["electric_range"])],
-                "Base MSRP": [int(request.form["base_msrp"])],
-                "City": [request.form["city"]],
-                "County": [request.form["county"]],
+                # ----- geography -----
+                "County":              request.form["county"].strip().lower(),
+                "City":                request.form["city"].strip().lower(),
+                "State":               request.form["state"].strip().lower(),
+                "Postal Code":         request.form["postal_code"].strip(),   # keep as string
+
+                # ----- vehicle info -----
+                "Make":                request.form["make"].strip().lower(),
+                "Model":               request.form["model"].strip().lower(),
+                "Electric Vehicle Type": request.form["vehicle_type"].strip().lower(),
+
+                # ----- numeric -----
+                "Base MSRP":           int(request.form["base_msrp"]),
+                "Legislative District":request.form["legislative_district"].strip(),
+
+                # ----- utility -----
+                "Electric Utility":    request.form["electric_utility"].strip().lower(),
             }
 
-            df = pd.DataFrame(input_data)
+            df = pd.DataFrame([input_data])
 
             # Send to inference API
             response = requests.post(MODEL_ENDPOINT, json=df.to_dict(orient="records"))
@@ -39,7 +49,10 @@ def index():
         except Exception as e:
             error = str(e)
 
-    return render_template("form.html", prediction=prediction, error=error)
+    if prediction:
+        return render_template("result.html", eligibility=prediction, record=input_data)
+    else:
+        return render_template("form.html", prediction=None, error=error)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=80)
