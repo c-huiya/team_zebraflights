@@ -17,13 +17,23 @@ def index():
         try:
             # Get user inputs
             input_data = {
-                "Vehicle Make": request.form["vehicle_make"],            # <-- no [ ]
-                "Model Year":   int(request.form["model_year"]),
-                "Electric Vehicle Type": request.form["vehicle_type"],
-                "Electric Range": int(request.form["electric_range"]),
-                "Base MSRP": int(request.form["base_msrp"]),
-                "City": request.form["city"],
-                "County": request.form["county"],
+                # ----- geography -----
+                "County":              request.form["county"].strip().lower(),
+                "City":                request.form["city"].strip().lower(),
+                "State":               request.form["state"].strip().lower(),
+                "Postal Code":         request.form["postal_code"].strip(),   # keep as string
+
+                # ----- vehicle info -----
+                "Make":                request.form["make"].strip().lower(),
+                "Model":               request.form["model"].strip().lower(),
+                "Electric Vehicle Type": request.form["vehicle_type"].strip().lower(),
+
+                # ----- numeric -----
+                "Base MSRP":           int(request.form["base_msrp"]),
+                "Legislative District":request.form["legislative_district"].strip(),
+
+                # ----- utility -----
+                "Electric Utility":    request.form["electric_utility"].strip().lower(),
             }
 
             df = pd.DataFrame([input_data])
