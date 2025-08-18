@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: data-preprocessing
-          image: zebraflights-preprocess:latest
+          image: preprocess:latest
           imagePullPolicy: IfNotPresent   # ✅ use local image if available
           ports:
             - containerPort: 8000
@@ -39,6 +39,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: preprocess-service
+  namespace: zebraflights
 spec:
   selector:
     app: data-preprocessing
