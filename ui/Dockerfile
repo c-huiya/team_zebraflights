@@ -1,12 +1,13 @@
+# ui/Dockerfile
 FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY ui/requirements.txt requirements.txt
+COPY ui/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY ui/ .
+COPY ui/ ./
 
-EXPOSE 80
+EXPOSE 5002
 
-CMD ["python", "app.py"]
+CMD ["python", "-u", "app.py"]
