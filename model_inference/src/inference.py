@@ -168,7 +168,10 @@ def predict():
                 }
             )
 
-        result = pd.DataFrame({PREDICTION_COLUMN: preds})
+        label_map = {0: "Not Eligible", 1: "Eligible"}
+        pred_labels = [label_map.get(int(p), "Unknown") for p in preds]
+
+        result = pd.DataFrame({PREDICTION_COLUMN: pred_labels})
 
         # 6) Optional: save predictions
         saved_path = None
@@ -188,7 +191,9 @@ def predict():
             "n_rows": int(len(result)),
             "prediction_column": PREDICTION_COLUMN,
             "saved_to": saved_path,
-            "predictions": json.loads(result.to_json(orient="records")),
+            # "predictions": json.loads(result.to_json(orient="records")),
+            "predictions": [{"prediction": lab} for lab in pred_labels],
+            "prediction_column": "prediction",
             "preprocessing_summary": {
                 "cleaned_file": str(cleaned_path),
                 "rows_cleaned": prep_result.get("rows_cleaned"),
