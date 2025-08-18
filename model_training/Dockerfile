@@ -1,29 +1,32 @@
 FROM python:3.11-slim
 
-# Install system dependencies
+# System deps (no tini)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
-    tini \
-    && rm -rf /var/lib/apt/lists/*
+    libgomp1 \
+ && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
-# Copy and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python deps (Dockerfile at project root; build context = repo root)
+COPY model_training/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy training source code
-COPY src/ ./src/
+# Copy training code
+COPY model_training/src/ ./src/
 
-# Set environment variables
+# Create expected data dirs
 ENV MODEL_DIR=/data/04_model_output \
     ENCODED_DIR=/data/02_preprocessed/encoded_split \
     PORT=8000
+RUN mkdir -p "$MODEL_DIR" "$ENCODED_DIR"
 
-# Use tini to handle PID 1 correctly (good practice)
-ENTRYPOINT ["/usr/bin/tini", "--"]
+EXPOSE 8000
 
-# Run Flask server (serve train.py as API)
-CMD ["python", "src/train.py"]
+# No init/entrypoint
+CMD ["python","src/train.py"]
