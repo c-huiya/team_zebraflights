@@ -4,4 +4,4 @@ metadata:
   name: ui-config
   namespace: zebraflights       # lives inside your namespace
 data:
-  MODEL_ENDPOINT: "http://model-service:5002/predict"
+  MODEL_ENDPOINT: "http://model-inference:5002/predict"
