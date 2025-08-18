@@ -5,6 +5,7 @@ import joblib
 from pathlib import Path
 import traceback
 import logging
+from flask_cors import CORS
 
 # ------------------------------
 # Project + paths
@@ -31,14 +32,14 @@ MODEL_PATH = Path(os.getenv("MODEL_PATH", PROJECT_ROOT / "data" / "04_model_outp
 # ------------------------------
 PREPROC_DIR = PROJECT_ROOT / "data_preprocessing" / "src"
 if PREPROC_DIR.exists():
-    sys.path.insert(0, str(PREPROC_DIR))
+    sys.path.insert(0, str(PREPROC_DIR))  # ensure our preprocess.py is first
 else:
     raise RuntimeError(f"Preprocessing module not found at {PREPROC_DIR}")
 
 from preprocess import run_preprocessing  # noqa: E402
 
 # ------------------------------
-# Load model
+# Load model (no local preprocessing here)
 # ------------------------------
 if not MODEL_PATH.exists():
     raise FileNotFoundError(f"Model file not found at: {MODEL_PATH}")
@@ -49,21 +50,21 @@ model = joblib.load(MODEL_PATH)
 # ------------------------------
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
 
 # Defaults (overridable via env)
 DEFAULT_INFERENCE_REL = os.getenv("INFERENCE_INPUT", "03_inference/inference_dataset.csv")
 PREDICTION_COLUMN = os.getenv("PREDICTION_COLUMN", "prediction")
 
 # Parameters passed through to run_preprocessing
-# NOTE: target_col is deliberately ignored during inference
+# NOTE: we run in "inference mode" (do_encode_split=False) → no target is required
 UNKNOWN_POLICY = os.getenv("UNKNOWN_POLICY", "negative")   # 'negative' or 'drop'
 OUTLIER_STRATEGY = os.getenv("OUTLIER_STRATEGY", "clip")   # 'clip' or 'remove'
 
 
 def _respond_error(msg, code=400, extra=None):
-    """Consistent error responses; msg can be str or a dict with details."""
     payload = {"status": "error", "message": msg}
-    if extra:
+    if extra is not None:
         payload["details"] = extra
     return jsonify(payload), code
 
@@ -84,13 +85,17 @@ def healthz():
     return jsonify({"status": "ok"}), 200
 
 
-@app.route("/predict", methods=["POST"])
+@app.route("/predict", methods=["POST", "OPTIONS"])
 def predict():
+    # Handle CORS preflight quickly
+    if request.method == "OPTIONS":
+        return ("", 204)
+
     temp_dir = tempfile.mkdtemp(prefix="inference_")
     try:
-        # 1) Parse JSON
+        # 1) Parse JSON (accept a single object or {"rows":[...]})
         try:
-            raw = request.get_json(force=True)  # may be dict or list
+            raw = request.get_json(force=True)
         except Exception:
             return _respond_error("Request body must be valid JSON with Content-Type: application/json.", 400)
 
@@ -101,7 +106,13 @@ def predict():
             rows = raw
         elif isinstance(raw, dict):
             body = raw
-            rows = body.get("rows")
+            # allow single object as shorthand
+            if "rows" in body and isinstance(body["rows"], list):
+                rows = body["rows"]
+            elif body and not body.get("input"):
+                # treat the dict itself as one record if it looks like data
+                rows = [body]
+                body = {}
         else:
             return _respond_error("JSON must be an object or a list of row-objects.", 400)
 
@@ -119,19 +130,19 @@ def predict():
             if not src_csv.exists():
                 return _respond_error(f"Source file not found: {src_csv}", 404)
 
-        # 3) Preprocess in "inference mode" (NO target, NO split)
+        # 3) Delegate ALL preprocessing (inference mode: no target, no split)
         temp_clean_csv = Path(temp_dir) / "cleaned.csv"
         prep_result = run_preprocessing(
             input_path=str(src_csv),
             output_path=str(temp_clean_csv),
             outlier_strategy=OUTLIER_STRATEGY,
-            do_encode_split=False,     # IMPORTANT: avoid target-dependent code paths
-            target_col=None,           # IMPORTANT: do not require a target at inference
+            do_encode_split=False,   # inference mode
+            target_col=None,         # not needed in inference
             unknown_policy=UNKNOWN_POLICY,
             encoded_dir=None
         )
 
-        # Sanity: ensure cleaned file exists
+        # 4) Load cleaned features
         cleaned_path = Path(prep_result.get("cleaned_file", temp_clean_csv))
         if not cleaned_path.exists():
             return _respond_error(
@@ -139,18 +150,16 @@ def predict():
                 500,
                 extra={"expected_cleaned_file": str(cleaned_path)}
             )
-
-        # 4) Load cleaned features
         X = pd.read_csv(cleaned_path)
 
-        # 5) Predict
+        # 5) Predict (the model should encapsulate any needed encoders)
         try:
             preds = model.predict(X)
         except Exception as ex:
             logging.error("Model predict() failed:\n%s", traceback.format_exc())
             return _respond_error(
-                "Model prediction failed. Check that your saved model expects the same columns "
-                "produced by preprocessing (and that categorical encoders use handle_unknown).",
+                "Model prediction failed. Ensure your saved model expects exactly the "
+                "columns produced by preprocessing (e.g., a Pipeline with encoders).",
                 500,
                 extra={
                     "exception": repr(ex),
@@ -183,10 +192,6 @@ def predict():
             "preprocessing_summary": {
                 "cleaned_file": str(cleaned_path),
                 "rows_cleaned": prep_result.get("rows_cleaned"),
-                # The following keys exist only in training mode; kept here for consistency:
-                "encoded_artifacts": prep_result.get("encoded_artifacts"),
-                "n_features": prep_result.get("n_features"),
-                "class_balance": prep_result.get("class_balance"),
             }
         })
 
