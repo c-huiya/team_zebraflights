@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ui-config
+  namespace: zebraflights       # lives inside your namespace
+data:
+  MODEL_ENDPOINT: "http://model-service:5002/predict"
