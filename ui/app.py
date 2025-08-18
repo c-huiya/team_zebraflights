@@ -68,7 +68,7 @@ def index():
                 if raw_pred is None:
                     error = "No prediction found in response."
                 else:
-                    prediction = "Eligible" if int(raw_pred) == 1 else "Not Eligible"
+                    prediction = raw_pred
             else:
                 try:
                     # show whatever keys the backend sent
