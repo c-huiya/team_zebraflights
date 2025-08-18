@@ -42,7 +42,21 @@ def index():
             response = requests.post(MODEL_ENDPOINT, json=df.to_dict(orient="records"))
 
             if response.status_code == 200:
-                prediction = response.json()["predictions"][0]["prediction"]
+                resp = response.json()
+
+                # For current inference service (dict with "predictions")
+                if isinstance(resp, dict) and "predictions" in resp:
+                    raw_pred = resp["predictions"][0].get("prediction", None)
+                # For older style (list of dicts)
+                elif isinstance(resp, list) and len(resp) > 0:
+                    raw_pred = resp[0].get("Clean Alternative Fuel Vehicle (CAFV) Eligibility", None)
+                else:
+                    raw_pred = None
+
+                if raw_pred is None:
+                    error = "No prediction found in response."
+                else:
+                    prediction = "Eligible" if int(raw_pred) == 1 else "Not Eligible"
             else:
                 error = response.json().get("error", "Unknown error")
 
