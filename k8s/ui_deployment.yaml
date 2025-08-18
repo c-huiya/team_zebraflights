@@ -19,7 +19,7 @@ spec:
           image: ui:latest     # <-- put your real image name
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 80
+            - containerPort: 5002
           env:                          # inject MODEL_ENDPOINT from ConfigMap
             - name: MODEL_ENDPOINT
               valueFrom:

@@ -9,6 +9,6 @@ spec:
     app: ui
   ports:
     - port: 80        # service port
-      targetPort: 80  # containerPort
+      targetPort: 5002  # containerPort
       protocol: TCP
   type: ClusterIP
