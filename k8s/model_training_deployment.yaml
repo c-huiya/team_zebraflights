@@ -16,12 +16,13 @@ spec:
     spec:
       containers:
         - name: model-training
-          image: zebrafli-train:latest  # replace with your actual image or registry path
+          image: zebrafli-train:latest
+          imagePullPolicy: IfNotPresent  
           ports:
             - containerPort: 8000
           env:
             - name: ENCODED_DIR
-              value: /data/02_preprocessed/encoded_split
+              value: /data/02_preprocessed
             - name: MODEL_DIR
               value: /data/04_model_output
             - name: PORT

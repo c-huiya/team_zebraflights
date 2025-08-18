@@ -1,21 +1,29 @@
 FROM python:3.11-slim
 
-# Install build tools
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential gcc && rm -rf /var/lib/apt/lists/*
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    tini \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set workdir
+# Set working directory
 WORKDIR /app
 
-# Copy requirements and install
+# Copy and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy training source code
 COPY src/ ./src/
 
-# Set default env vars (overridable in Kubernetes)
-ENV DATA_PATH=/data/02_preprocessed/clean_dataset.csv \
-    MODEL_DIR=/model_output
+# Set environment variables
+ENV MODEL_DIR=/data/04_model_output \
+    ENCODED_DIR=/data/02_preprocessed/encoded_split \
+    PORT=8000
 
-# Run the training script
+# Use tini to handle PID 1 correctly (good practice)
+ENTRYPOINT ["/usr/bin/tini", "--"]
+
+# Run Flask server (serve train.py as API)
 CMD ["python", "src/train.py"]
