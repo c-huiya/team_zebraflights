@@ -1,7 +1,9 @@
+# ------------- Deployment --------------
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ui
+  name: ui-deployment
+  namespace: zebraflights          # <-- same namespace
 spec:
   replicas: 1
   selector:
@@ -14,10 +16,12 @@ spec:
     spec:
       containers:
         - name: ui
-          image: ui:latest  # <- replace with your actual image
-          imagePullPolicy: Never
+          image: ui:latest     # <-- put your real image name
           ports:
             - containerPort: 80
-          env:
+          env:                          # inject MODEL_ENDPOINT from ConfigMap
             - name: MODEL_ENDPOINT
-              value: "http://model-inference-service:5002/predict"
+              valueFrom:
+                configMapKeyRef:
+                  name: ui-config       # ConfigMap name
+                  key: MODEL_ENDPOINT   # key inside ConfigMap

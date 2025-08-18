@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: model-inference
+  namespace: zebraflights
   labels:
     app: model-inference
 spec:
@@ -28,7 +29,7 @@ spec:
       containers:
         - name: api
           image: model-inference:latest
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           workingDir: /app
           command: ["python"]
           args: ["/app/src/inference.py"]
