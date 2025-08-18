@@ -42,12 +42,14 @@ def index():
             response = requests.post(MODEL_ENDPOINT, json=df.to_dict(orient="records"))
 
             if response.status_code == 200:
-                prediction = response.json()[0]["Clean Alternative Fuel Vehicle (CAFV) Eligibility"]
+                prediction = response.json()["predictions"][0]["prediction"]
             else:
                 error = response.json().get("error", "Unknown error")
 
         except Exception as e:
-            error = str(e)
+            import traceback
+            error = traceback.format_exc()
+
 
     if prediction:
         return render_template("result.html", eligibility=prediction, record=input_data)
