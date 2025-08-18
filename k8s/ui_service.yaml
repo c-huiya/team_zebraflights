@@ -1,12 +1,14 @@
+# ------------- Service -----------------
 apiVersion: v1
 kind: Service
 metadata:
   name: ui-service
+  namespace: zebraflights          # <-- use the same namespace
 spec:
   selector:
     app: ui
   ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 80
+    - port: 80        # service port
+      targetPort: 80  # containerPort
+      protocol: TCP
   type: ClusterIP
