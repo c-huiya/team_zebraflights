@@ -15,6 +15,18 @@ def index():
 
     if request.method == "POST":
         try:
+            # ----- allow MSRP to be missing / 0 -----
+            msrp_raw = request.form["base_msrp"].strip()
+            if msrp_raw == "":
+                msrp_val = None
+            else:
+                try:
+                    msrp_val = int(msrp_raw)
+                    if msrp_val <= 0:
+                        msrp_val = None        # treat zero / negative as missing
+                except ValueError:
+                    msrp_val = None            # non-numeric → missing
+
             # Get user inputs
             input_data = {
                 # ----- geography -----
@@ -29,7 +41,7 @@ def index():
                 "Electric Vehicle Type": request.form["vehicle_type"].strip().lower(),
 
                 # ----- numeric -----
-                "Base MSRP":           int(request.form["base_msrp"]),
+                "Base MSRP":           msrp_val,
                 "Legislative District":request.form["legislative_district"].strip(),
 
                 # ----- utility -----
@@ -58,7 +70,14 @@ def index():
                 else:
                     prediction = "Eligible" if int(raw_pred) == 1 else "Not Eligible"
             else:
-                error = response.json().get("error", "Unknown error")
+                try:
+                    # show whatever keys the backend sent
+                    backend = response.json()
+                    error = backend.get("message") or backend.get("error") \
+                            or f"Model service error (HTTP {response.status_code})"
+                except ValueError:
+                    # non-JSON body
+                    error = f"Model service returned HTTP {response.status_code} and non-JSON payload"
 
         except Exception as e:
             import traceback

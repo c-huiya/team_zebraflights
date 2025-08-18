@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: data-preprocessing
+  namespace: zebraflights
   labels:
     app: data-preprocessing
 spec:
