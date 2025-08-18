@@ -1,23 +1,26 @@
+# data_preprocessing/Dockerfile
 FROM python:3.11-slim
 
-# System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends tini \
+# Keep it minimal — no tini
+RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Working directory
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
-# Install Python dependencies
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# Paths are relative to build context (repo root)
+COPY data_preprocessing/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r ./requirements.txt
 
-# Copy source
-COPY src/ /app/src/
+COPY data_preprocessing/src/ ./src/
 
-# Set envs
-ENV DATA_DIR=/data
-ENV PORT=8000
+ENV DATA_DIR=/data \
+    PORT=8000
 
-# Entry
-ENTRYPOINT ["/usr/bin/tini", "--"]
+EXPOSE 8000
+
+# No init/entrypoint needed
 CMD ["python", "src/preprocess.py"]
