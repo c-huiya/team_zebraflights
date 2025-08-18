@@ -12,7 +12,7 @@ from scipy import sparse
 from scipy.sparse import save_npz
 
 app = Flask(__name__)
-DATA_ROOT = Path(os.getenv("DATA_DIR", "/data"))
+DATA_ROOT = Path(os.getenv("DATA_DIR", "data"))
 
 # Helpers
 def _iqr_bounds(s):
@@ -133,8 +133,8 @@ def run_preprocessing(
         cat = X.select_dtypes(include=["object", "category"]).columns.tolist()
         num = X.select_dtypes(include=["number", "bool"]).columns.tolist()
         pre = ColumnTransformer(
-            [("cat", OneHotEncoder(handle_unknown="ignore"), cat)] if cat else [] +
-            [("num", StandardScaler(), num)] if num else [],
+            ([("cat", OneHotEncoder(handle_unknown="ignore"), cat)] if cat else []) +
+            ([("num", StandardScaler(), num)] if num else []),
             remainder="drop"
         )
         X_enc = pre.fit_transform(X)
@@ -144,7 +144,8 @@ def run_preprocessing(
             X_enc, y, test_size=test_size, stratify=y, random_state=seed
         )
 
-        out_dir = Path(encoded_dir or Path(output_path).parent / "encoded_split")
+        #Save into the SAME folder as clean_dataset.csv unless encoded_dir is provided
+        out_dir = Path(encoded_dir or Path(output_path).parent)
         out_dir.mkdir(parents=True, exist_ok=True)
 
         save_npz(out_dir / "X_train.npz", sparse.csr_matrix(X_tr))
@@ -153,10 +154,17 @@ def run_preprocessing(
         np.save(out_dir / "y_test.npy", y_te)
         (out_dir / "feature_names.json").write_text(json.dumps(list(map(str, feat_names)), indent=2))
 
+        #FULL ENCODED CSV (all rows, all one-hot features + target)
+        X_full = X_enc.toarray() if sparse.issparse(X_enc) else np.asarray(X_enc)
+        encoded_df = pd.DataFrame(X_full, columns=[str(c) for c in feat_names])
+        encoded_df.insert(0, "target", y)
+        encoded_df.to_csv(out_dir / "encoded_dataset.csv", index=False)
+
         result.update({
             "encoded_artifacts": str(out_dir),
             "n_features": int(X_enc.shape[1]),
-            "class_balance": {"neg": int((y == 0).sum()), "pos": int((y == 1).sum())}
+            "class_balance": {"neg": int((y == 0).sum()), "pos": int((y == 1).sum())},
+            "encoded_csv": str(out_dir / "encoded_dataset.csv")
         })
 
     return result
@@ -178,7 +186,7 @@ def preprocess():
         unknown_policy = body.get("unknown_policy", "negative")
         test_size = float(body.get("test_size", 0.2))
         seed = int(body.get("seed", 42))
-        encoded_rel = body.get("encoded_dir", "02_preprocessed/encoded_split")
+        encoded_rel = body.get("encoded_dir", "02_preprocessed")
 
         input_path = DATA_ROOT / input_rel
         output_path = DATA_ROOT / output_rel
