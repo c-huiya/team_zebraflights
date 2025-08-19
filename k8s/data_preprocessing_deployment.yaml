@@ -18,7 +18,7 @@ spec:
       containers:
         - name: data-preprocessing
           image: preprocess:latest
-          imagePullPolicy: IfNotPresent   # ✅ use local image if available
+          imagePullPolicy: IfNotPresent #use local image if available
           ports:
             - containerPort: 8000
           env:
