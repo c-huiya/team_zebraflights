@@ -1,18 +1,21 @@
 FROM python:3.11-slim
 
-# System deps (no tini)
+# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
     libgomp1 \
- && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
+# Prevent Python from writing .pyc files
+# Shows logs show up
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 
 
+# Set working directory inside container
 WORKDIR /app
 
-# Install Python deps (Dockerfile at project root; build context = repo root)
+# Install Python deps
 COPY model_training/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
@@ -26,7 +29,10 @@ ENV MODEL_DIR=/data/04_model_output \
     PORT=8000
 RUN mkdir -p "$MODEL_DIR" "$ENCODED_DIR"
 
+# Container listens on port 8000
 EXPOSE 8000
 
 # No init/entrypoint
 CMD ["python","src/train.py"]
+
+
