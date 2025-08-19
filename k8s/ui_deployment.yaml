@@ -1,46 +1,49 @@
-# ------------- Deployment --------------
-apiVersion: apps/v1
+apiVersion: apps/v1        # Specifies this is a Deployment resource
 kind: Deployment
 metadata:
-  name: ui-deployment
-  namespace: zebraflights          # <-- same namespace
+  name: ui-deployment      # Name of the Deployment
+  namespace: zebraflights  # Ensures it's deployed in the correct namespace
 spec:
-  replicas: 1
+  replicas: 1              # Run one replica of the UI container
   selector:
     matchLabels:
-      app: ui
+      app: ui              # Matches the pod with label 'app: ui'
   template:
     metadata:
       labels:
-        app: ui
+        app: ui            # Labels to identify this pod for services
     spec:
       containers:
         - name: ui
-          image: ui:latest     # <-- put your real image name
-          imagePullPolicy: IfNotPresent
+          image: ui:latest     # The Docker image used for the UI module (built earlier)
+          imagePullPolicy: IfNotPresent  # Only pulls image if not available locally
           ports:
-            - containerPort: 5002    # 🟡 Change to 80 if your app runs on port 80 inside container
-          env:                      # ✅ Environment variable from ConfigMap
+            - containerPort: 5002    # The port your Flask app runs on inside the container
+
+          # nject environment variable for Flask to call inference
+          env:
             - name: MODEL_ENDPOINT
               valueFrom:
                 configMapKeyRef:
-                  name: ui-config       # ConfigMap name
-                  key: MODEL_ENDPOINT   # key inside ConfigMap
+                  name: ui-config       # Reads from ConfigMap called 'ui-config'
+                  key: MODEL_ENDPOINT   # Reads the 'MODEL_ENDPOINT' key value
 
+          # Health check to determine if app is ready to receive traffic
           readinessProbe:
             httpGet:
               path: /
-              port: 5002               # same as containerPort
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 2
-            failureThreshold: 6
+              port: 5002               # Must match the containerPort
+            initialDelaySeconds: 5     # Wait 5s before first probe
+            periodSeconds: 5           # Check every 5s
+            timeoutSeconds: 2          # Timeout if no response in 2s
+            failureThreshold: 6        # Fail if 6 checks in a row fail
 
+          # Health check to restart container if it becomes unresponsive
           livenessProbe:
             httpGet:
               path: /
               port: 5002
-            initialDelaySeconds: 30
-            periodSeconds: 10
+            initialDelaySeconds: 30    # Wait 30s before checking
+            periodSeconds: 10          # Check every 10s
             timeoutSeconds: 2
-            failureThreshold: 3
+            failureThreshold: 3        # Restart after 3 failures

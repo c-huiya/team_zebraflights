@@ -27,7 +27,7 @@ kubectl apply -f k8s/model_inference_service.yaml
 kubectl apply -f k8s/ui_deployment.yaml
 kubectl apply -f k8s/ui_service.yaml
 
-# Ingress (should come last)
+# Ingress
 kubectl apply -f k8s/ingress.yaml
 
 echo "All Kubernetes resources deployed successfully."
