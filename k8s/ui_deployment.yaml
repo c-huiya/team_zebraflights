@@ -19,10 +19,28 @@ spec:
           image: ui:latest     # <-- put your real image name
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 5002
-          env:                          # inject MODEL_ENDPOINT from ConfigMap
+            - containerPort: 5002    # 🟡 Change to 80 if your app runs on port 80 inside container
+          env:                      # ✅ Environment variable from ConfigMap
             - name: MODEL_ENDPOINT
               valueFrom:
                 configMapKeyRef:
                   name: ui-config       # ConfigMap name
                   key: MODEL_ENDPOINT   # key inside ConfigMap
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5002               # same as containerPort
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 6
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5002
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
