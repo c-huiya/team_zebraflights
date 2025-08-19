@@ -2,6 +2,8 @@
 
 echo "Deploying all Kubernetes resources..."
 
+minikube start
+
 # Namespace must be applied first
 kubectl apply -f k8s/namespace.yaml
 
