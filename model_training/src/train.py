@@ -21,13 +21,13 @@ from sklearn.feature_selection import mutual_info_classif
 
 app = Flask(__name__)
 
-# ---- ENV defaults (override via POST /train body) ----
+# ENV defaults (override via POST /train body)
 MODEL_DIR = Path(os.getenv("MODEL_DIR", "/data/04_model_output"))
 ENCODED_DIR = Path(os.getenv("ENCODED_DIR", "/data/02_preprocessed/encoded_split"))
 PORT = int(os.getenv("PORT", "8000"))
 
 
-# Helpers
+# Evaluate model at a chosen probability threshold
 def evaluate(y_true: np.ndarray, proba: np.ndarray, thresh: float) -> dict:
     y_true = np.asarray(y_true, dtype=int)
     pred = (proba >= thresh).astype(int)
@@ -49,6 +49,7 @@ def evaluate(y_true: np.ndarray, proba: np.ndarray, thresh: float) -> dict:
     }
 
 
+# load preprocessed train/test + feature names
 def load_artifacts(encoded_dir: Path):
     X_tr = load_npz(encoded_dir / "X_train.npz")
     X_te = load_npz(encoded_dir / "X_test.npz")
@@ -59,16 +60,17 @@ def load_artifacts(encoded_dir: Path):
     return X_tr, X_te, y_tr, y_te, feat_names
 
 
-# Endpoints
+# Liveness check endpoint
 @app.get("/health")
 def health():
     return jsonify({"status": "ok", "time": datetime.utcnow().isoformat() + "Z"})
 
 
+# Train Endpoint
 @app.post("/train")
 def train():
     """
-    Body JSON (all optional):
+    Body JSON:
     {
       "encoded_dir": "/data/02_preprocessed/encoded_split",
       "model_dir": "/data/04_model_output",
@@ -101,7 +103,7 @@ def train():
     except Exception as e:
         return jsonify({"error": f"Loading encoded artifacts failed: {str(e)}"}), 400
 
-    # Train RF (no preprocessing here)
+    # Train RF
     defaults = dict(
         n_estimators=400, n_jobs=-1, random_state=seed, class_weight="balanced"
     )
@@ -136,7 +138,7 @@ def train():
     except Exception as e:
         metrics["_warning_fi"] = f"Feature importance failed: {str(e)}"
 
-    # Optional Mutual Information (on TRAIN)
+    # Mutual Information
     if compute_mi:
         try:
             is_discrete = np.array(
@@ -191,6 +193,7 @@ def train():
     except Exception as e:
         return jsonify({"error": f"Saving artifacts failed: {str(e)}"}), 500
 
+    # Return a training report as JSON response
     return jsonify(
         {
             "status": "trained",
@@ -215,6 +218,7 @@ def train():
     )
 
 
+# Metrics retrieval endpoint
 @app.get("/metrics")
 def get_metrics():
     model_dir = Path(request.args.get("model_dir", MODEL_DIR))
@@ -224,6 +228,7 @@ def get_metrics():
     return jsonify(json.loads(path.read_text()))
 
 
+# List produced files endpoint
 @app.get("/artifacts")
 def list_artifacts():
     model_dir = Path(request.args.get("model_dir", MODEL_DIR))
