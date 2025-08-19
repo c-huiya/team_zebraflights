@@ -2,14 +2,14 @@
 
 set -e  # Stop immediately on any error
 
-echo "Starting full pipeline: build → deploy → port-forward"
+echo "Starting full pipeline: "
 
 # 1. Build images
-./build_all.sh
+./scripts/build_all.sh
 
 # 2. Deploy to Kubernetes
-./deploy_all.sh
+./scripts/deploy_all.sh
 
 # 3. Port-forward UI (optional step — blocks terminal)
-echo "tarting port-forward to access UI..."
-./start_ui.sh
+echo "Starting port-forward to access UI..."
+./scripts/start_ui.sh

@@ -2,4 +2,4 @@
 
 echo "Forwarding UI port..."
 
-kubectl port-forward -n zebraflights service/ui-service 5002:5002
+kubectl port-forward svc/ui-service 8080:80 -n zebraflights
