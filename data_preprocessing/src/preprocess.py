@@ -11,6 +11,7 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from scipy import sparse
 from scipy.sparse import save_npz
 
+# Use /data in Kubernetes, change to "data" when running locally
 app = Flask(__name__)
 DATA_ROOT = Path(os.getenv("DATA_DIR", "data"))
 
@@ -23,6 +24,7 @@ def _iqr_bounds(s):
     return q1 - 1.5 * iqr, q3 + 1.5 * iqr
 
 def map_cafv(y: pd.Series, unknown_policy="negative"):
+    # Convert CAFV eligibility column into binary target labels
     ELIGIBLE = "clean alternative fuel vehicle eligible"
     NOT_ELIG = "not eligible due to low battery range"
     UNKNOWN = "eligibility unknown as battery range has not been researched"
@@ -40,6 +42,7 @@ def map_cafv(y: pd.Series, unknown_policy="negative"):
     return np.where(y_norm == ELIGIBLE, 1, 0).astype(int), np.ones(len(y), bool)
 
 def get_feature_names(pre: ColumnTransformer):
+    # Get readable feature names from ColumnTransformer
     try:
         return pre.get_feature_names_out()
     except Exception:
@@ -68,17 +71,19 @@ def run_preprocessing(
 ):
     df = pd.read_csv(input_path)
 
-    # Cleaning
+    # Cleaning duplicates 
     df = df.drop_duplicates()
     if "DOL Vehicle ID" in df.columns:
         df = df.drop_duplicates(subset=["DOL Vehicle ID"])
-
+    
+    # Cleaning missing data
     for col in df.select_dtypes(include=["object", "string"]).columns:
         df[col] = df[col].replace({"nan": np.nan}).fillna("unknown")
     for col in df.select_dtypes(include=[np.number]).columns:
         df[f"{col}_was_na"] = df[col].isna().astype(int)
         df[col] = df[col].fillna(df[col].median(skipna=True))
 
+    # Convert text columns that look numeric into numbers
     for col in df.select_dtypes(include=["object", "string"]).columns:
         s = df[col].astype(str)
         sample = s.sample(min(len(s), 2000), random_state=42)
@@ -88,12 +93,13 @@ def run_preprocessing(
                 s.str.replace(r"[,\s]", "", regex=True).str.replace(r"^\$", "", regex=True),
                 errors="coerce"
             )
-
+    # Fix Base MSRP values
     if "Base MSRP" in df.columns:
         df["Base MSRP"] = pd.to_numeric(df["Base MSRP"], errors="coerce")
         df.loc[df["Base MSRP"] <= 0, "Base MSRP"] = np.nan
         df["Base MSRP"] = df["Base MSRP"].fillna(df["Base MSRP"].median(skipna=True))
 
+    # Handle outliers (clip or remove)  
     hard_caps = {"Base MSRP": (0, 200000)}
     for col in df.select_dtypes(include=[np.number]).columns:
         s = df[col].dropna()
@@ -130,6 +136,7 @@ def run_preprocessing(
         X = df.drop(columns=[c for c in leakage_cols if c in df.columns], errors="ignore")
         y = y_bin.astype(int)
 
+        # Split categorical vs numerical features
         cat = X.select_dtypes(include=["object", "category"]).columns.tolist()
         num = X.select_dtypes(include=["number", "bool"]).columns.tolist()
         pre = ColumnTransformer(
@@ -144,7 +151,7 @@ def run_preprocessing(
             X_enc, y, test_size=test_size, stratify=y, random_state=seed
         )
 
-        #Save into the SAME folder as clean_dataset.csv unless encoded_dir is provided
+        #Save into the data folder
         out_dir = Path(encoded_dir or Path(output_path).parent)
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -154,7 +161,7 @@ def run_preprocessing(
         np.save(out_dir / "y_test.npy", y_te)
         (out_dir / "feature_names.json").write_text(json.dumps(list(map(str, feat_names)), indent=2))
 
-        #FULL ENCODED CSV (all rows, all one-hot features + target)
+        #save all csv so can check manually if needed
         X_full = X_enc.toarray() if sparse.issparse(X_enc) else np.asarray(X_enc)
         encoded_df = pd.DataFrame(X_full, columns=[str(c) for c in feat_names])
         encoded_df.insert(0, "target", y)
@@ -172,10 +179,12 @@ def run_preprocessing(
 # Flask endpoints
 @app.route("/healthz", methods=["GET"])
 def health():
+    # Health check endpoint
     return jsonify({"status": "ok"})
 
 @app.route("/preprocess", methods=["POST"])
 def preprocess():
+    # Trigger preprocessing from API
     try:
         body = request.get_json(force=True)
         input_rel = body.get("input", "01_raw/working_dataset.csv")
