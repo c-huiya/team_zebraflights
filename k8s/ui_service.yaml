@@ -1,14 +1,13 @@
-# ------------- Service -----------------
 apiVersion: v1
 kind: Service
 metadata:
-  name: ui-service
-  namespace: zebraflights          # <-- use the same namespace
+  name: ui-service            # Name of the service (used by Ingress)
+  namespace: zebraflights     # Same namespace as Deployment
 spec:
   selector:
-    app: ui
+    app: ui                   # Routes traffic to pods with label 'app: ui'
   ports:
-    - port: 80        # service port
-      targetPort: 5002  # containerPort
+    - port: 80                # Port exposed to the outside (used by Ingress)
+      targetPort: 5002        # Maps to the port inside the container
       protocol: TCP
-  type: ClusterIP
+  type: ClusterIP             # Default internal service type for intra-cluster access
