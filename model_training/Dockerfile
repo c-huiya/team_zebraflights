@@ -7,11 +7,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Prevent Python from writing .pyc files
-# Shows logs show up
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 
-
 # Set working directory inside container
 WORKDIR /app
 
