@@ -30,22 +30,22 @@ def index():
             # Get user inputs
             input_data = {
                 # ----- geography -----
-                "County":              request.form["county"].strip().lower(),
-                "City":                request.form["city"].strip().lower(),
-                "State":               request.form["state"].strip().lower(),
+                "County":              request.form["county"].strip() ,
+                "City":                request.form["city"].strip() ,
+                "State":               request.form["state"].strip() ,
                 "Postal Code":         request.form["postal_code"].strip(),   # keep as string
 
                 # ----- vehicle info -----
-                "Make":                request.form["make"].strip().lower(),
-                "Model":               request.form["model"].strip().lower(),
-                "Electric Vehicle Type": request.form["vehicle_type"].strip().lower(),
+                "Make":                request.form["make"].strip() ,
+                "Model":               request.form["model"].strip() ,
+                "Electric Vehicle Type": request.form["vehicle_type"].strip() ,
 
                 # ----- numeric -----
                 "Base MSRP":           msrp_val,
                 "Legislative District":request.form["legislative_district"].strip(),
 
                 # ----- utility -----
-                "Electric Utility":    request.form["electric_utility"].strip().lower(),
+                "Electric Utility":    request.form["electric_utility"].strip() ,
             }
 
             df = pd.DataFrame([input_data])
