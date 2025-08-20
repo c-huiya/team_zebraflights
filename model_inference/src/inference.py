@@ -151,10 +151,6 @@ def predict():
                 extra={"expected_cleaned_file": str(cleaned_path)}
             )
         X = pd.read_csv(cleaned_path)
-        for col in X.select_dtypes(include=[float, int]).columns:
-            if X[col].isnull().any():
-                fallback = 35000 if "msrp" in col.lower() else 0
-                X[col] = X[col].fillna(fallback)
 
         # 5) Predict (the model should encapsulate any needed encoders)
         try:
